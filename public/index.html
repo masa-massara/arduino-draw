@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Joystick Drawing</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+        }
+
+        #modeIndicator {
+            margin-top: 10px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        #colorIndicator {
+            margin-top: 5px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="drawingCanvas" width="800" height="600"></canvas>
+    <p id="modeIndicator">現在のモード: Draw</p>
+    <p id="colorIndicator">現在の線と丸の色: 青</p>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const canvas = document.getElementById("drawingCanvas");
+        const ctx = canvas.getContext("2d");
+
+        // 初期位置
+        let x = canvas.width / 2;
+        let y = canvas.height / 2;
+
+        // デッドゾーンと速度スケール
+        const DEAD_ZONE = 5;
+        const SPEED_SCALE = 6.0;
+
+        // ジョイスティックの速度
+        let velocityX = 0;
+        let velocityY = 0;
+
+        // モード管理
+        let mode = 'draw';
+
+        // 線の履歴を保持する配列（各線に色を含む）
+        const lines = [];
+
+        // 現在の描画色（線と丸の色）
+        let currentColor = "blue";
+
+        // ボタン状態
+        let isModeButtonPressed = false;
+        let wasModeButtonPressed = false;
+        let isColorButtonPressed = false;
+        let wasColorButtonPressed = false;
+
+        // 表示更新用
+        const modeIndicator = document.getElementById("modeIndicator");
+        const colorIndicator = document.getElementById("colorIndicator");
+
+        // WebSocket設定
+        const socket = io();
+
+        // ジョイスティックデータを受信
+        socket.on("joystickData", (data) => {
+            const [xValue, yValue, modeButtonState, colorButtonState] = data.split(",").map(Number);
+
+            if (isNaN(xValue) || isNaN(yValue) || isNaN(modeButtonState) || isNaN(colorButtonState)) return;
+
+            // デッドゾーンチェック
+            const deltaX = xValue - 512;
+            const deltaY = yValue - 512;
+
+            velocityX = Math.abs(deltaX) > DEAD_ZONE ? (deltaX / 512) * SPEED_SCALE : 0;
+            velocityY = Math.abs(deltaY) > DEAD_ZONE ? (deltaY / 512) * SPEED_SCALE : 0;
+
+            // モード切り替えボタンの状態管理
+            wasModeButtonPressed = isModeButtonPressed;
+            isModeButtonPressed = modeButtonState === 0;
+
+            if (isModeButtonPressed && !wasModeButtonPressed) {
+                mode = mode === 'draw' ? 'move' : 'draw';
+                modeIndicator.textContent = `現在のモード: ${mode === 'draw' ? 'Draw' : 'Move'}`;
+            }
+
+            // 色変更ボタンの状態管理
+            wasColorButtonPressed = isColorButtonPressed;
+            isColorButtonPressed = colorButtonState === 0;
+
+            if (isColorButtonPressed && !wasColorButtonPressed) {
+                // 色変更ロジック
+                if (currentColor === "blue") {
+                    currentColor = "red";
+                } else if (currentColor === "red") {
+                    currentColor = "green";
+                } else {
+                    currentColor = "blue";
+                }
+                colorIndicator.textContent = `現在の線と丸の色: ${currentColor}`;
+            }
+        });
+
+        // 線を描画
+        function drawLine(line) {
+            ctx.beginPath();
+            ctx.moveTo(line.from.x, line.from.y);
+            ctx.lineTo(line.to.x, line.to.y);
+            ctx.strokeStyle = line.color; // 各線の色を適用
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        // 丸を描画
+        function drawCircle(x, y) {
+            const radius = 5;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, 2 * Math.PI);
+            ctx.fillStyle = currentColor; // 丸の色
+            ctx.fill();
+            ctx.strokeStyle = currentColor; // 輪郭も同じ色
+            ctx.stroke();
+        }
+
+        // ターゲットを描画
+        function drawTarget(x, y) {
+            ctx.beginPath();
+            ctx.arc(x, y, 10, 0, 2 * Math.PI);
+            ctx.strokeStyle = "red";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(x - 15, y);
+            ctx.lineTo(x + 15, y);
+            ctx.moveTo(x, y - 15);
+            ctx.lineTo(x, y + 15);
+            ctx.strokeStyle = "red";
+            ctx.stroke();
+        }
+
+        // 描画ループ
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const prevX = x;
+            const prevY = y;
+
+            x += velocityX;
+            y += velocityY;
+
+            x = Math.max(0, Math.min(canvas.width, x));
+            y = Math.max(0, Math.min(canvas.height, y));
+
+            if (mode === 'draw') {
+                lines.push({
+                    from: { x: prevX, y: prevY },
+                    to: { x, y },
+                    color: currentColor // 線の色を保存
+                });
+            }
+
+            lines.forEach(drawLine); // 過去の線を再描画
+
+            if (mode === 'draw') {
+                drawCircle(x, y);
+            } else if (mode === 'move') {
+                drawTarget(x, y);
+            }
+
+            requestAnimationFrame(draw);
+        }
+
+        // 描画開始
+        draw();
+    </script>
+</body>
+
+</html>
